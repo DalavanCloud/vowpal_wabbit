@@ -69,7 +69,8 @@ void learn_gd(void* a, example* ec)
 		
 		predict(*all, ec);
 
-		if (ec->eta_round != 0.)
+		// if eta (learn rate)? for this sample is nonzero, then train wrt this sample
+		if (ec->eta_round != 0.0)
 		{
 			if(all->power_t == 0.5)
 				inline_train(*all, ec, ec->eta_round);
@@ -155,39 +156,51 @@ void finish_example(vw& all, example* ec)
   return_simple_example(all, ec);
 }
 
+/**
+Compute truncated prediction for example ec
+*/
 float inline_predict_trunc(vw& all, example* &ec)
 {
-  float prediction = all.p->lp->get_initial(ec->ld);
-  
-  weight* weights = all.reg.weight_vectors;
-  size_t mask = all.weight_mask;
-  for (size_t* i = ec->indices.begin; i != ec->indices.end; i++) 
-    prediction += sd_add_trunc(weights,mask,ec->atomics[*i].begin, ec->atomics[*i].end, (float)all.sd->gravity);
-  
-  for (vector<string>::iterator i = all.pairs.begin(); i != all.pairs.end();i++) 
-    {
-      if (ec->atomics[(int)(*i)[0]].index() > 0)
-	{
-	  v_array<feature> temp = ec->atomics[(int)(*i)[0]];
-	  for (; temp.begin != temp.end; temp.begin++)
-	    prediction += one_pf_quad_predict_trunc(weights, *temp.begin,
-						    ec->atomics[(int)(*i)[1]], mask, (float)all.sd->gravity);
-	}
-    }
-  
-  return prediction;
-}
+	float prediction = all.p->lp->get_initial(ec->ld); // get initial prediction
 
+	weight* weights = all.reg.weight_vectors;
+	size_t mask = all.weight_mask;
+
+	// for each namespace
+	for (size_t* i = ec->indices.begin; i != ec->indices.end; i++) {
+		prediction += sd_add_trunc(weights,mask,ec->atomics[*i].begin, ec->atomics[*i].end, (float)all.sd->gravity);
+	}
+
+	// compute crossed features weight
+	for (vector<string>::iterator i = all.pairs.begin(); i != all.pairs.end();i++) 
+	{
+		if (ec->atomics[(int)(*i)[0]].index() > 0)
+		{
+			v_array<feature> temp = ec->atomics[(int)(*i)[0]];
+			for (; temp.begin != temp.end; temp.begin++)
+				prediction += one_pf_quad_predict_trunc(weights, *temp.begin,
+				ec->atomics[(int)(*i)[1]], mask, (float)all.sd->gravity);
+		}
+	}
+
+	return prediction;
+}
+/**
+Compute simple prediction (dot product)
+*/
 float inline_predict(vw& all, example* &ec)
 {
   float prediction = all.p->lp->get_initial(ec->ld);
 
   weight* weights = all.reg.weight_vectors;
   size_t mask = all.weight_mask;
-  for (size_t* i = ec->indices.begin; i != ec->indices.end; i++) 
-    prediction += sd_add(weights,mask,ec->atomics[*i].begin, ec->atomics[*i].end);
-  for (vector<string>::iterator i = all.pairs.begin(); i != all.pairs.end();i++) 
-    {
+  
+  for (size_t* i = ec->indices.begin; i != ec->indices.end; i++) {
+    prediction += sd_add(weights, mask, ec->atomics[*i].begin, ec->atomics[*i].end);
+  }
+
+  // crossed features
+  for (vector<string>::iterator i = all.pairs.begin(); i != all.pairs.end();i++) {
       if (ec->atomics[(int)(*i)[0]].index() > 0)
 	{
 	  v_array<feature> temp = ec->atomics[(int)(*i)[0]];
@@ -468,60 +481,67 @@ void offset_quad_update(weight* weights, feature& page_feature, v_array<feature>
 
 void inline_train(vw& all, example* &ec, float update)
 {
-  if (fabs(update) == 0.)
-    return;
+	// skip if the update rate is 0
+	if (fabs(update) == 0.0)
+		return;
 
-  size_t mask = all.weight_mask;
-  label_data* ld = (label_data*)ec->ld;
-  weight* weights = all.reg.weight_vectors;
+	size_t mask = all.weight_mask;
+	label_data* ld = (label_data*)ec->ld;
+	weight* weights = all.reg.weight_vectors;
 
-  size_t idx_norm = all.normalized_idx;
-  bool is_adaptive = all.adaptive;
-  bool is_normalized = all.normalized_updates;
+	size_t idx_norm = all.normalized_idx;
+	bool is_adaptive = all.adaptive;
+	bool is_normalized = all.normalized_updates;
 
-  float total_weight;
-  if(all.active)
-    total_weight = (float)all.sd->weighted_unlabeled_examples;
-  else
-    total_weight = ec->example_t;
+	float total_weight;
 
-  float avg_norm = sqrt(all.normalized_sum_norm_x / total_weight);
+	if(all.active)
+		total_weight = (float)all.sd->weighted_unlabeled_examples;
+	else
+		total_weight = ec->example_t;
 
-  float g = all.loss->getSquareGrad(ec->final_prediction, ld->label) * ld->weight;
-  for (size_t* i = ec->indices.begin; i != ec->indices.end; i++) 
-  {
-    feature* f = ec->atomics[*i].begin;
-    for (; f != ec->atomics[*i].end; f++)
-    {
-      weight* w = &weights[f->weight_index & mask];
-      float t = 1.f;
-      float inv_norm = 1.f;
-      if( is_normalized ) inv_norm /= (w[idx_norm] * avg_norm);
-      if(is_adaptive) {
+	float avg_norm = sqrt(all.normalized_sum_norm_x / total_weight);
+
+	float g = all.loss->getSquareGrad(ec->final_prediction, ld->label) * ld->weight;
+	for (size_t* i = ec->indices.begin; i != ec->indices.end; i++) 
+	{
+		feature* f = ec->atomics[*i].begin;
+		for (; f != ec->atomics[*i].end; f++)
+		{
+			weight* w = &weights[f->weight_index & mask];
+			float t = 1.0f;
+			float inv_norm = 1.0f;
+
+			if(is_normalized) 
+				inv_norm /= (w[idx_norm] * avg_norm);
+
+			if(is_adaptive) {
 #if defined(__SSE2__) && !defined(VW_LDA_NO_SSE)
-        __m128 eta = _mm_load_ss(&w[1]);
-        eta = _mm_rsqrt_ss(eta);
-        _mm_store_ss(&t, eta);
-        t *= inv_norm;
+				__m128 eta = _mm_load_ss(&w[1]);
+				eta = _mm_rsqrt_ss(eta);
+				_mm_store_ss(&t, eta);
+				t *= inv_norm;
 #else
-        t = InvSqrt(w[1]) * inv_norm;
+				t = InvSqrt(w[1]) * inv_norm;
 #endif
-      }
-      else {
-        t *= inv_norm*inv_norm; //if only using normalized updates but not adaptive, need to divide by feature norm squared
-      }
-      w[0] += update * f->x * t;
-    }
-  }
-  for (vector<string>::iterator i = all.pairs.begin(); i != all.pairs.end();i++) 
-  {
-    if (ec->atomics[(int)(*i)[0]].index() > 0)
-    {
-      v_array<feature> temp = ec->atomics[(int)(*i)[0]];
-      for (; temp.begin != temp.end; temp.begin++)
-        one_pf_quad_update(weights, *temp.begin, ec->atomics[(int)(*i)[1]], mask, update, g, ec, is_adaptive, is_normalized, idx_norm, avg_norm);
-    } 
-  }
+			}
+			else {
+				t *= inv_norm*inv_norm; //if only using normalized updates but not adaptive, need to divide by feature norm squared
+			}
+			w[0] += update * f->x * t;
+		}
+	}
+
+	// train on crossed features
+	for (vector<string>::iterator i = all.pairs.begin(); i != all.pairs.end();i++) 
+	{
+		if (ec->atomics[(int)(*i)[0]].index() > 0)
+		{
+			v_array<feature> temp = ec->atomics[(int)(*i)[0]];
+			for (; temp.begin != temp.end; temp.begin++)
+				one_pf_quad_update(weights, *temp.begin, ec->atomics[(int)(*i)[1]], mask, update, g, ec, is_adaptive, is_normalized, idx_norm, avg_norm);
+		} 
+	}
 }
 
 void quad_general_update(weight* weights, feature& page_feature, v_array<feature> &offer_features, size_t mask, float update, float g, example* ec, float power_t, 
@@ -886,7 +906,7 @@ void predict(vw& all, example* ex)
 	label_data* ld = (label_data*)ex->ld; // get label 
 	float prediction;
 
-	// if training & normalized updates
+	// if training & normalized updates -> predict & rescale if needed
 	if (all.training && all.normalized_updates && ld->label != FLT_MAX && ld->weight > 0) {
 
 		if( all.power_t == 0.5 ) {
@@ -915,24 +935,23 @@ void predict(vw& all, example* ex)
 	ex->done = true;
 }
 
+/**
+main learning code
+*/
 void drive_gd(void* in)
 {
-  vw* all = (vw*)in;
-  example* ec = NULL;
-  
-  while ( true )
-    {
-      if ((ec = get_example(all->p)) != NULL)//semiblocking operation.
-	{
-	  learn_gd(all, ec);
-	  finish_example(*all, ec);
+	vw* all = (vw*)in;
+	example* ec = NULL;
+
+	while(true){
+		if ((ec = get_example(all->p)) != NULL){ //semiblocking operation.
+			learn_gd(all, ec);
+			finish_example(*all, ec);
+		} else if (parser_done(all->p)) {
+			finish_gd(all);
+			return;
+		}
+		else 
+			;//busywait when we have predicted on all examples but not yet trained on all.
 	}
-      else if (parser_done(all->p))
-	{
-	  finish_gd(all);
-	  return;
-	}
-      else 
-	;//busywait when we have predicted on all examples but not yet trained on all.
-    }
 }
