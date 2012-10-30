@@ -7,28 +7,32 @@ license as described in the file LICENSE.
 #include "unique_sort.h"
 #include "global_data.h"
 
+/* feature comparator */
 int order_features(const void* first, const void* second)
 {
   return ((feature*)first)->weight_index - ((feature*)second)->weight_index;
 }
 
+/* audit features comparator */
 int order_audit_features(const void* first, const void* second)
 {
   return (int)(((audit_data*)first)->weight_index) - (int)(((audit_data*)second)->weight_index);
 }
 
+/* remove doubling features */
 void unique_features(v_array<feature> &features)
 {
   if (features.empty())
     return;
+
   feature* last = features.begin;
-  for (feature* current = features.begin+1; 
-       current != features.end; current++)
+  for (feature* current = features.begin + 1; current != features.end; current++)
     if (current->weight_index != last->weight_index) 
       *(++last) = *current;
   features.end = ++last;
 }
 
+/* remove doubling audit features */
 void unique_audit_features(v_array<audit_data> &features)
 {
   if (features.empty())
@@ -41,6 +45,7 @@ void unique_audit_features(v_array<audit_data> &features)
   features.end = ++last;
 }
 
+/* sort features (and audit features) and remove duplicates */
 void unique_sort_features(bool audit, example* ae)
 {
   ae->sorted=true;

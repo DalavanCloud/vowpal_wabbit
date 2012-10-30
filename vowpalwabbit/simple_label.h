@@ -12,8 +12,8 @@ license as described in the file LICENSE.
 #include "example.h"
 
 struct label_data {
-  float label;
-  float weight;
+  float label; // label value
+  float weight; // label weight
   float initial;
 };
 

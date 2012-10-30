@@ -156,7 +156,7 @@ struct vw {
   float l1_lambda; //the level of l_1 regularization to impose.
   float l2_lambda; //the level of l_2 regularization to impose.
   float power_t;//the power on learning rate decay.
-  int reg_mode;
+  int reg_mode; // regularization mode {1 - L1, 2 - L2}, if L1+L2, then L2 
 
   size_t minibatch;
 

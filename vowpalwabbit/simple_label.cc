@@ -9,15 +9,18 @@ using namespace std;
 
 char* bufread_simple_label(shared_data* sd, label_data* ld, char* c)
 {
-  ld->label = *(float *)c;
-  c += sizeof(ld->label);
-  if (sd->binary_label && fabs(ld->label) != 1.f && ld->label != FLT_MAX)
-    cout << "You are using a label not -1 or 1 with a loss function expecting that!" << endl;
-  ld->weight = *(float *)c;
-  c += sizeof(ld->weight);
-  ld->initial = *(float *)c;
-  c += sizeof(ld->initial);
-  return c;
+	ld->label = *(float *)c;
+	c += sizeof(ld->label);
+
+	if(sd->binary_label && fabs(ld->label) != 1.f && ld->label != FLT_MAX) {
+		cout << "You are using a label not -1 or 1 with a loss function expecting that!" << endl;
+	}
+
+	ld->weight = *(float *)c;
+	c += sizeof(ld->weight);
+	ld->initial = *(float *)c;
+	c += sizeof(ld->initial);
+	return c;
 }
 
 size_t read_cached_simple_label(shared_data* sd, void* v, io_buf& cache)

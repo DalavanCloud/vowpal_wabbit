@@ -11,6 +11,9 @@ license as described in the file LICENSE.
 
 inline float sign(float w){ if (w < 0.) return -1.; else  return 1.;}
 
+/**
+Приближает |w| к 0 на gravity, если w > gravity, иначе 0
+*/
 inline float trunc_weight(float w, float gravity){
   return (gravity < fabsf(w)) ? w - sign(w) * gravity : 0.f;
 }

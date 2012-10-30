@@ -10,30 +10,30 @@ license as described in the file LICENSE.
 #include "v_array.h"
 
 struct feature {
-  float x;
-  uint32_t weight_index;
+  float x; // feature value
+  uint32_t weight_index; // feature index (hashed)
   bool operator==(feature j){return weight_index == j.weight_index;}
 };
 
 struct audit_data {
-  char* space;
-  char* feature;
-  size_t weight_index;
-  float x;
-  bool alloced;
+  char* space; // feature namespace?
+  char* feature; // feature name
+  size_t weight_index; // feature hash
+  float x; // feature value
+  bool alloced; // true, initially
 };
 
 typedef float simple_prediction;
 
 struct example // core example datatype.
 {
-  void* ld;
+  void* ld; // label data
   simple_prediction final_prediction;
 
   v_array<char> tag;//An identifier for the example.
   size_t example_counter;
 
-  v_array<size_t> indices;
+  v_array<size_t> indices; // non-empty namespace indexes
   v_array<feature> atomics[256]; // raw parsed data
   
   v_array<audit_data> audit_features[256];
@@ -47,13 +47,13 @@ struct example // core example datatype.
   float eta_global;
   float global_weight;
   float example_t;//sum of importance weights so far.
-  float sum_feat_sq[256];//helper for total_sum_feat_sq.
+  float sum_feat_sq[256];//helper for total_sum_feat_sq. (sum of squared feature values)
   float total_sum_feat_sq;//precomputed, cause it's kind of fast & easy.
   float revert_weight;
 
   bool sorted;//Are the features sorted or not?
   bool in_use; //in use or not (for the parser)
-  bool done; //set to false by setup_example()
+  bool done; //set to false by setup_example() and true by gd.train
 };
 
 example *alloc_example(size_t);

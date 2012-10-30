@@ -8,15 +8,33 @@ license as described in the file LICENSE.
 #include "constant.h"
 #include <math.h>
 
+/**
+Simple dot product <weights, feats>
+
+@param weights weight vector
+@param mask hashing bit mask
+@param begin features begin ptr
+@param end features end ptr
+*/
 float sd_add(weight* weights, size_t mask, feature* begin, feature* end)
 {
-  float ret = 0.;
+  float ret = 0.0;
   for (feature* f = begin; f!= end; f++) {
     ret += weights[f->weight_index & mask] * f->x;
   }
   return ret;
 }
 
+/**
+Truncating dot product. feature values are truncated with gravity
+|x| = |x| - |gravity|, if |x| > |gravity| and 0 otherwise
+
+@param weights weight vector
+@param mask hashing bitmask
+@param begin features begin ptr
+@param end features end ptr
+@param gravity truncating gravity 
+*/
 float sd_add_trunc(weight* weights, size_t mask, feature* begin, feature* end, float gravity)
 {
   float ret = 0.;
@@ -25,6 +43,17 @@ float sd_add_trunc(weight* weights, size_t mask, feature* begin, feature* end, f
   return ret;
 }
 
+
+/**
+Compute dot product with rescaling of individual features
+
+@param weight weight vector
+@param mask hashing bitmask
+@param begin features begin ptr
+@param end features end ptr
+@param is_adaptive - using adapting rescaling?
+@param idx_norm index where store the norm
+*/
 float sd_add_rescale(weight* weights, size_t mask, feature* begin, feature* end, bool is_adaptive, size_t idx_norm)
 {
   float ret = 0.;
@@ -44,63 +73,100 @@ float sd_add_rescale(weight* weights, size_t mask, feature* begin, feature* end,
   return ret;
 }
 
+
 float sd_add_trunc_rescale(weight* weights, size_t mask, feature* begin, feature* end, float gravity, bool is_adaptive, size_t idx_norm)
 {
-  float ret = 0.;
-  for (feature* f = begin; f!= end; f++) {
-    weight* w = &weights[f->weight_index & mask];
-    float x = f->x;
-    float x_abs = fabs(x);
-    if( x_abs > w[idx_norm] ) {
-      if( w[idx_norm] > 0. ) {
-        float rescale = (w[idx_norm]/x_abs);
-        w[0] *= (is_adaptive ? rescale : rescale*rescale);
-      }
-      w[idx_norm] = x_abs;
-    }
-    ret += trunc_weight(w[0], gravity) * x;
-  }
-  return ret;
+	float ret = 0.0;
+	for (feature* f = begin; f!= end; f++) {
+		weight* w = &weights[f->weight_index & mask];
+		float x = f->x;
+		float x_abs = fabs(x);
+
+		// если значение x > w[idx_norm], то 
+		if(x_abs > w[idx_norm]) {
+			if(w[idx_norm] > 0.0){
+				float rescale = (w[idx_norm]/x_abs);
+				w[0] *= (is_adaptive ? rescale : rescale*rescale);
+			}
+			w[idx_norm] = x_abs;
+		}
+		ret += trunc_weight(w[0], gravity) * x;
+	}
+	return ret;
 }
 
+/**
+Called by predict on single feature namespace
+
+
+@param weights weight vector
+@param mask hash bitmask
+@param begin ptr to features array begin
+@param end ptr to features array end
+@param idx_norm index where store a norm?
+@param power_t_norm 
+*/
 float sd_add_rescale_general(weight* weights, size_t mask, feature* begin, feature* end, size_t idx_norm, float power_t_norm)
 {
-  float ret = 0.;
-  for (feature* f = begin; f!= end; f++) {
-    weight* w = &weights[f->weight_index & mask];
-    float x = f->x;
-    float x_abs = fabs(x);
-    if( x_abs > w[idx_norm] ) {
-      if( w[idx_norm] > 0. ) {
-        float rescale = (w[idx_norm]/x_abs);
-        w[0] *= powf(rescale*rescale,power_t_norm);
-      }
-      w[idx_norm] = x_abs;
-    }
-    ret += w[0] * x;
-  }
-  return ret;
+	float ret = 0.0;
+	for (feature* f = begin; f != end; f++) {
+		weight* w = &weights[f->weight_index & mask];
+		float x = f->x;
+		float x_abs = fabs(x);
+
+		// rescale if needed if the |x| > |w_x|
+		if(x_abs > w[idx_norm]) {
+			
+			if(w[idx_norm] > 0.0) {
+				float rescale = (w[idx_norm]/x_abs);
+				w[0] *= powf(rescale * rescale, power_t_norm); // rescale w with rescale^{2 * power_t_norm}
+			}
+
+			w[idx_norm] = x_abs;
+		}
+
+		ret += w[0] * x;
+	}
+	return ret;
 }
 
+/**
+Most generic version of 'dot' product. Rescale + gravity truncate
+
+@param weights weight vector
+@param mask hash bitmask
+@param begin ptr to features array begin
+@param end ptr to features array end
+
+@param gravity gravity
+@param idx_norm norm index in weight vector
+@param power_t_norm learning decay factor?
+*/
 float sd_add_trunc_rescale_general(weight* weights, size_t mask, feature* begin, feature* end, float gravity, size_t idx_norm, float power_t_norm)
 {
-  float ret = 0.;
-  for (feature* f = begin; f!= end; f++) {
-    weight* w = &weights[f->weight_index & mask];
-    float x = f->x;
-    float x_abs = fabs(x);
-    if( x_abs > w[idx_norm] ) {
-      if( w[idx_norm] > 0. ) {
-        float rescale = (w[idx_norm]/x_abs);
-        w[0] *= powf(rescale*rescale,power_t_norm);
-      }
-      w[idx_norm] = x_abs;
-    }
-    ret += trunc_weight(w[0], gravity) * x;
-  }
-  return ret;
+	float ret = 0.;
+	for (feature* f = begin; f!= end; f++) {
+		weight* w = &weights[f->weight_index & mask];
+		float x = f->x;
+		float x_abs = fabs(x);
+
+		if( x_abs > w[idx_norm] ) {
+
+			if( w[idx_norm] > 0. ) {
+				float rescale = (w[idx_norm]/x_abs);
+				w[0] *= powf(rescale*rescale,power_t_norm);
+			}
+			w[idx_norm] = x_abs;
+		}
+
+		ret += trunc_weight(w[0], gravity) * x;
+	}
+	return ret;
 }
 
+/**
+Dot product with offset ret += weights[hash(f + o) & mask] * v
+*/
 float sd_offset_add(weight* weights, size_t mask, feature* begin, feature* end, size_t offset)
 {
   float ret = 0.;
@@ -109,6 +175,9 @@ float sd_offset_add(weight* weights, size_t mask, feature* begin, feature* end, 
   return ret;
 }
 
+/**
+Dot product with offset + gravity truncation
+*/
 float sd_offset_add_trunc(weight* weights, size_t mask, feature* begin, feature* end, size_t offset, float gravity)
 {
   float ret = 0.;
@@ -117,6 +186,19 @@ float sd_offset_add_trunc(weight* weights, size_t mask, feature* begin, feature*
   return ret;
 }
 
+
+/**
+Dot product with offset + rescaling (used for cross). Rescaling is applied to x * f_x
+
+@param weight weight vector
+@param mask hash bitmask
+@param begin features start ptr
+@param end features end ptr
+@param offset offset
+@param x - first feature of the pair
+@param is_adaptive - use adaptive scaling?
+@param idx_norm - norm index offset
+*/
 float sd_offset_add_rescale(weight* weights, size_t mask, feature* begin, feature* end, size_t offset, float x, bool is_adaptive, size_t idx_norm)
 {
   float ret = 0.;
@@ -136,6 +218,9 @@ float sd_offset_add_rescale(weight* weights, size_t mask, feature* begin, featur
   return ret;
 }
 
+/**
+Dot product with offset + rescaling + gravity truncation [all wrt x * f_x]
+*/
 float sd_offset_add_trunc_rescale(weight* weights, size_t mask, feature* begin, feature* end, size_t offset, float gravity, float x, bool is_adaptive, size_t idx_norm)
 {
   float ret = 0.;
@@ -155,6 +240,9 @@ float sd_offset_add_trunc_rescale(weight* weights, size_t mask, feature* begin, 
   return ret;
 }
 
+/**
+Dot product with offset + generic rescaling wrt power_t
+*/
 float sd_offset_add_rescale_general(weight* weights, size_t mask, feature* begin, feature* end, size_t offset, float x, size_t idx_norm, float power_t_norm)
 {
   float ret = 0.;
@@ -165,7 +253,7 @@ float sd_offset_add_rescale_general(weight* weights, size_t mask, feature* begin
     if( xquad_abs > w[idx_norm] ) {
       if( w[idx_norm] > 0 ) {
         float rescale = w[idx_norm]/xquad_abs;
-        w[0] *= powf(rescale*rescale,power_t_norm);
+        w[0] *= powf(rescale*rescale, power_t_norm);
       }
       w[idx_norm] = xquad_abs;
     }
@@ -174,6 +262,9 @@ float sd_offset_add_rescale_general(weight* weights, size_t mask, feature* begin
   return ret;
 }
 
+/**
+Dot product with offset + rescaling[generic rescaling wrt power_t] + gravity truncation [all wrt x * f_x]
+*/
 float sd_offset_add_trunc_rescale_general(weight* weights, size_t mask, feature* begin, feature* end, size_t offset, float gravity, float x, size_t idx_norm, float power_t_norm)
 {
   float ret = 0.;
@@ -193,27 +284,48 @@ float sd_offset_add_trunc_rescale_general(weight* weights, size_t mask, feature*
   return ret;
 }
 
+/**
+Update weight vector as:
+w[h(f + offset)] += update * f.value - r*w[h(f + offset)]
+
+@param weight weight vector
+@param mask hash bitmask
+@param begin features begin ptr
+@param end features end ptr
+@param update update factor
+@param regularization regularization factor
+*/
 void sd_offset_update(weight* weights, size_t mask, feature* begin, feature* end, size_t offset, float update, float regularization)
 {
-  for (feature* f = begin; f!= end; f++) 
+  for (feature* f = begin; f!= end; f++) {
     weights[(f->weight_index + offset) & mask] += update * f->x - regularization * weights[(f->weight_index + offset) & mask];
+  }
 } 
 
-void quadratic(v_array<feature> &f, const v_array<feature> &first_part, 
-               const v_array<feature> &second_part, size_t mask)
+/**
+Compute cross-features.
+
+for x from X, and y from Y add new xy feature to f.
+f.index = (h_1(x.index) + y.index) & mask
+f.value = x.value * y.value
+*/
+void quadratic(v_array<feature> &f, const v_array<feature> &first_part, const v_array<feature> &second_part, size_t mask)
 {
-  for (feature* i = first_part.begin; i != first_part.end; i++)
-    {
-      size_t halfhash = quadratic_constant * i->weight_index;
-      float i_value = i->x;
-      for (feature* ele = second_part.begin; ele != second_part.end; ele++) {
-        size_t quad_index = (halfhash+ele->weight_index) & mask;
-        feature temp = {i_value * ele->x, (uint32_t)quad_index};
-        push(f, temp);
-      }
-    }
+	for (feature* i = first_part.begin; i != first_part.end; i++)
+	{
+		size_t halfhash = quadratic_constant * i->weight_index;
+		float i_value = i->x;
+		for (feature* ele = second_part.begin; ele != second_part.end; ele++) {
+			size_t quad_index = (halfhash + ele->weight_index) & mask;
+			feature temp = {i_value * ele->x, (uint32_t)quad_index};
+			push(f, temp);
+		}
+	}
 }
 
+/**
+Compute prediction (dot product) of offer_feature crossed with each feature in page_features
+*/
 float one_of_quad_predict(v_array<feature> &page_features, feature& offer_feature, weight* weights, size_t mask)
 {
   float prediction = 0.0;
@@ -225,9 +337,12 @@ float one_of_quad_predict(v_array<feature> &page_features, feature& offer_featur
   return prediction * offer_feature.x;
 }
 
+/**
+Compute prediction of (dot product) of <f,cross_features>? 
+*/
 float one_pf_quad_predict(weight* weights, feature& f, v_array<feature> &cross_features, size_t mask)
 {
-  size_t halfhash = quadratic_constant * f.weight_index;
+  size_t halfhash = quadratic_constant * f.weight_index; // offset of crossed
   
   return f.x * sd_offset_add(weights, mask, cross_features.begin, cross_features.end, halfhash);
 }

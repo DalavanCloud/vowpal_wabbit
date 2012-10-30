@@ -41,68 +41,81 @@ void sync_weights(vw& all);
 
 void learn_gd(void* a, example* ec)
 {
-  vw* all = (vw*)a;
-  assert(ec->in_use);
-  if (ec->pass != gd_current_pass)
-    {
-      
-      if(all->span_server != "") {
-	if(all->adaptive)
-	  accumulate_weighted_avg(*all, all->span_server, all->reg);
-	else 
-	  accumulate_avg(*all, all->span_server, all->reg, 0);	      
-      }
-      
-      if (all->save_per_pass)
-	{
-	  sync_weights(*all);
-	  save_predictor(*all, all->final_regressor_name, gd_current_pass);
-	}
-      all->eta *= all->eta_decay_rate;
-      
-      gd_current_pass = ec->pass;
-    }
-  
-  if (!command_example(*all, ec))
-    {
-      predict(*all,ec);
-      if (ec->eta_round != 0.)
-	{
-         if(all->power_t == 0.5)
-            inline_train(*all,ec,ec->eta_round);
-          else
-            general_train(*all,ec,ec->eta_round,all->power_t);
+	vw* all = (vw*)a;
+	assert(ec->in_use);
 
-	  if (all->sd->contraction < 1e-10)  // updating weights now to avoid numerical instability
-	    sync_weights(*all);
-	  
+	// for multinode env?
+	if (ec->pass != gd_current_pass){
+		
+		// map/reduce?
+		if(all->span_server != ""){
+			if(all->adaptive)
+				accumulate_weighted_avg(*all, all->span_server, all->reg);
+			else 
+				accumulate_avg(*all, all->span_server, all->reg, 0);	      
+		}
+
+		if (all->save_per_pass){
+			sync_weights(*all);
+			save_predictor(*all, all->final_regressor_name, gd_current_pass);
+		}
+
+		all->eta *= all->eta_decay_rate;
+
+		gd_current_pass = ec->pass;
 	}
-    }
+
+	if (!command_example(*all, ec)){
+		
+		predict(*all, ec);
+
+		if (ec->eta_round != 0.)
+		{
+			if(all->power_t == 0.5)
+				inline_train(*all, ec, ec->eta_round);
+			else
+				general_train(*all, ec, ec->eta_round, all->power_t);
+
+			if (all->sd->contraction < 1e-10)  // updating weights now to avoid numerical instability
+				sync_weights(*all);
+
+		}
+	}
 }
 
 void finish_gd(void* a)
 {
-  vw* all = (vw*)a;
-  sync_weights(*all);
-  if(all->span_server != "") {
-    if(all->adaptive)
-      accumulate_weighted_avg(*all, all->span_server, all->reg);
-    else
-      accumulate_avg(*all, all->span_server, all->reg, 0);
-  }
+	vw* all = (vw*)a;
+	sync_weights(*all);
+	if(all->span_server != "") {
+		if(all->adaptive)
+			accumulate_weighted_avg(*all, all->span_server, all->reg);
+		else
+			accumulate_avg(*all, all->span_server, all->reg, 0);
+	}
 }
 
+/*Если используется регуляризация, то уменьшить компоненты w[i*stride] в сторону 0 на gravity*contraction */
 void sync_weights(vw& all) {
-  if (all.sd->gravity == 0. && all.sd->contraction == 1.)  // to avoid unnecessary weight synchronization
+  if (all.sd->gravity == 0.0 && all.sd->contraction == 1.0)  // to avoid unnecessary weight synchronization
     return;
+
   uint32_t length = 1 << all.num_bits;
-  size_t stride = all.stride;
-  for(uint32_t i = 0; i < length && all.reg_mode; i++)
-    all.reg.weight_vectors[stride*i] = trunc_weight(all.reg.weight_vectors[stride*i], (float)all.sd->gravity) * (float)all.sd->contraction;
+  size_t stride = all.stride; // current stride?
+
+  /*update only when regularization is on(L1 or L2) */
+  for(uint32_t i = 0; i < length && all.reg_mode; i++) {
+	  all.reg.weight_vectors[stride * i] = trunc_weight(all.reg.weight_vectors[stride*i], (float)all.sd->gravity) * (float)all.sd->contraction;
+  }
+
   all.sd->gravity = 0.;
   all.sd->contraction = 1.;
 }
 
+/**
+Команда - когда только один namespace, или один и tag = save.
+В теге возможно наличие имени файла вида save_foobar
+*/
 bool command_example(vw& all, example* ec) {
   if (ec->indices.index() > 1)
     return false;
@@ -216,47 +229,54 @@ float inline_predict_trunc_rescale(vw& all, example* &ec)
 
   weight* weights = all.reg.weight_vectors;
   size_t mask = all.weight_mask;
-  for (size_t* i = ec->indices.begin; i != ec->indices.end; i++) 
-    prediction += sd_add_trunc_rescale(weights,mask,ec->atomics[*i].begin, ec->atomics[*i].end,(float)all.sd->gravity,all.adaptive,all.normalized_idx);
-
-  for (vector<string>::iterator i = all.pairs.begin(); i != all.pairs.end();i++) 
-    {
-      if (ec->atomics[(int)(*i)[0]].index() > 0)
-	{
-	  v_array<feature> temp = ec->atomics[(int)(*i)[0]];
-	  for (; temp.begin != temp.end; temp.begin++)
-	    prediction += one_pf_quad_predict_trunc_rescale(weights,*temp.begin,
-					      ec->atomics[(int)(*i)[1]],mask,(float)all.sd->gravity,all.adaptive,all.normalized_idx);
-	}
-    }
   
+  // dot? 
+  for (size_t* i = ec->indices.begin; i != ec->indices.end; i++) {
+    prediction += sd_add_trunc_rescale(weights, mask, ec->atomics[*i].begin, ec->atomics[*i].end, (float)all.sd->gravity, all.adaptive, all.normalized_idx);
+  }
+
+  // пары фич, если актуально?
+  for(vector<string>::iterator i = all.pairs.begin(); i != all.pairs.end(); i++){
+	  if (ec->atomics[(int)(*i)[0]].index() > 0){
+		  v_array<feature> temp = ec->atomics[(int)(*i)[0]];
+		  for (; temp.begin != temp.end; temp.begin++) {
+			  prediction += one_pf_quad_predict_trunc_rescale(weights, *temp.begin, ec->atomics[(int)(*i)[1]], mask, (float)all.sd->gravity, all.adaptive, all.normalized_idx);
+		  }
+	  }
+  }
+
   return prediction;
 }
 
 float inline_predict_rescale_general(vw& all, example* &ec)
 {
-  float prediction = all.p->lp->get_initial(ec->ld);
+	float prediction = all.p->lp->get_initial(ec->ld); // initial prediction
 
-  float power_t_norm = 1.f;
-  if(all.adaptive) power_t_norm -= all.power_t;
+	float power_t_norm = 1.f;
 
-  weight* weights = all.reg.weight_vectors;
-  size_t mask = all.weight_mask;
-  for (size_t* i = ec->indices.begin; i != ec->indices.end; i++) 
-    prediction += sd_add_rescale_general(weights,mask,ec->atomics[*i].begin, ec->atomics[*i].end, all.normalized_idx, power_t_norm);
+	if(all.adaptive) 
+		power_t_norm -= all.power_t;
 
-  for (vector<string>::iterator i = all.pairs.begin(); i != all.pairs.end();i++) 
-    {
-      if (ec->atomics[(int)(*i)[0]].index() > 0)
-	{
-	  v_array<feature> temp = ec->atomics[(int)(*i)[0]];
-	  for (; temp.begin != temp.end; temp.begin++)
-	    prediction += one_pf_quad_predict_rescale_general(weights,*temp.begin,
-					      ec->atomics[(int)(*i)[1]],mask, all.normalized_idx, power_t_norm);
+	weight* weights = all.reg.weight_vectors;
+	size_t mask = all.weight_mask; // hashing bitmask
+
+	// compute 'dot product' for all features in all namespaces
+	for (size_t* i = ec->indices.begin; i != ec->indices.end; i++) {
+		prediction += sd_add_rescale_general(weights, mask,ec->atomics[*i].begin, ec->atomics[*i].end, all.normalized_idx, power_t_norm);
 	}
-    }
-  
-  return prediction;
+
+	for (vector<string>::iterator i = all.pairs.begin(); i != all.pairs.end();i++) 
+	{
+		if (ec->atomics[(int)(*i)[0]].index() > 0) {
+			v_array<feature> temp = ec->atomics[(int)(*i)[0]];
+
+			for (; temp.begin != temp.end; temp.begin++) {
+				prediction += one_pf_quad_predict_rescale_general(weights,*temp.begin, ec->atomics[(int)(*i)[1]], mask, all.normalized_idx, power_t_norm);
+			}
+		}
+	}
+
+	return prediction;
 }
 
 float inline_predict_trunc_rescale_general(vw& all, example* &ec)
@@ -863,33 +883,36 @@ void local_predict(vw& all, example* ec)
 
 void predict(vw& all, example* ex)
 {
-  label_data* ld = (label_data*)ex->ld;
-  float prediction;
-  if (all.training && all.normalized_updates && ld->label != FLT_MAX && ld->weight > 0) {
-    if( all.power_t == 0.5 ) {
-      if (all.reg_mode % 2)
-        prediction = inline_predict_trunc_rescale(all, ex);
-      else
-        prediction = inline_predict_rescale(all, ex);
-    }
-    else {
-      if (all.reg_mode % 2)
-        prediction = inline_predict_trunc_rescale_general(all, ex);
-      else
-        prediction = inline_predict_rescale_general(all, ex);
-    }
-  }
-  else {
-    if (all.reg_mode % 2)
-      prediction = inline_predict_trunc(all, ex);
-    else
-      prediction = inline_predict(all, ex);
-  }
+	label_data* ld = (label_data*)ex->ld; // get label 
+	float prediction;
 
-  ex->partial_prediction += prediction;
+	// if training & normalized updates
+	if (all.training && all.normalized_updates && ld->label != FLT_MAX && ld->weight > 0) {
 
-  local_predict(all, ex);
-  ex->done = true;
+		if( all.power_t == 0.5 ) {
+			if (all.reg_mode % 2)
+				prediction = inline_predict_trunc_rescale(all, ex);
+			else
+				prediction = inline_predict_rescale(all, ex);
+		}
+		else {
+			if (all.reg_mode % 2)
+				prediction = inline_predict_trunc_rescale_general(all, ex);
+			else
+				prediction = inline_predict_rescale_general(all, ex);
+		}
+	}
+	else {
+		if (all.reg_mode % 2)
+			prediction = inline_predict_trunc(all, ex);
+		else
+			prediction = inline_predict(all, ex);
+	}
+
+	ex->partial_prediction += prediction;
+
+	local_predict(all, ex);
+	ex->done = true;
 }
 
 void drive_gd(void* in)
