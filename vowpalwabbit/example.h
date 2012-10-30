@@ -28,7 +28,7 @@ typedef float simple_prediction;
 struct example // core example datatype.
 {
   void* ld; // label data
-  simple_prediction final_prediction;
+  simple_prediction final_prediction; // final decision value for this example?
 
   v_array<char> tag;//An identifier for the example.
   size_t example_counter;

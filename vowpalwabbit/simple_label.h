@@ -12,7 +12,7 @@ license as described in the file LICENSE.
 #include "example.h"
 
 struct label_data {
-  float label; // label value
+  float label; // label value, if label == FLT_MAX, then it is an unlabeled example
   float weight; // label weight
   float initial;
 };

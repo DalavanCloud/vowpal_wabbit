@@ -35,17 +35,26 @@ size_t read_cached_simple_label(shared_data* sd, void* v, io_buf& cache)
   return total;
 }
 
+/**
+ * Get weight from the label
+ * @param v label
+ */
 float get_weight(void* v)
 {
   label_data* ld = (label_data*) v;
   return ld->weight;
 }
 
+/**
+ * Get initial prediction for the label
+ * @param v label
+ */
 float get_initial(void* v)
 {
   label_data* ld = (label_data*) v;
   return ld->initial;
 }
+
 
 char* bufcache_simple_label(label_data* ld, char* c)
 {
@@ -78,6 +87,13 @@ void delete_simple_label(void* v)
 {
 }
 
+/**
+ * Parse simple label from tokens
+ * 
+ * @param sd shared data object
+ * @param v label data ptr
+ * @param words token
+ */
 void parse_simple_label(shared_data* sd, void* v, v_array<substring>& words)
 {
   label_data* ld = (label_data*)v;
@@ -105,37 +121,54 @@ void parse_simple_label(shared_data* sd, void* v, v_array<substring>& words)
     cout << "You are using a label not -1 or 1 with a loss function expecting that!" << endl;
 }
 
+/**
+ * 
+ * @param l loss? 
+ */
 float get_active_coin_bias(float k, float l, float g, float c0)
 {
-  float b,sb,rs,sl;
-  b=(float)(c0*(log(k+1.)+0.0001)/(k+0.0001));
-  sb=sqrt(b);
-  if (l > 1.0) { l = 1.0; } else if (l < 0.0) { l = 0.0; } //loss should be in [0,1]
-  sl=sqrt(l)+sqrt(l+g);
-  if (g<=sb*sl+b)
+  float b = (float)(c0 * (log(k + 1.0) + 0.0001)/(k + 0.0001));
+  float sb = sqrt(b); 
+  
+  if (l > 1.0){ 
+      l = 1.0;   
+  } else if (l < 0.0) { 
+    l = 0.0; 
+  } //loss should be in [0,1]
+  
+  float sl = sqrt(l) + sqrt(l+g);
+  if(g <= sb*sl + b)
     return 1;
-  rs = (sl+sqrt(sl*sl+4*g))/(2*g);
+  
+  float rs = (sl + sqrt(sl*sl + 4*g))/(2*g);
   return b*rs*rs;
 }
 
+/**
+ * @param all vw data
+ * @param ec current sample
+ * @param k - called with all.sd->weighted_unlabeled_examples
+ */
 float query_decision(vw& all, example* ec, float k)
 {
   float bias, avg_loss, weighted_queries;
-  if (k<=1.)
-    bias=1.;
-  else{
-    weighted_queries = (float)(all.initial_t + all.sd->weighted_examples - all.sd->weighted_unlabeled_examples);
-    avg_loss = (float)(all.sd->sum_loss/k + sqrt((1.+0.5*log(k))/(weighted_queries+0.0001)));
-    bias = get_active_coin_bias(k, avg_loss, ec->revert_weight/k, all.active_c0);
+  
+  if(k <= 1.0) {
+      bias = 1.0;
+  } else {
+      weighted_queries = (float)(all.initial_t + all.sd->weighted_examples - all.sd->weighted_unlabeled_examples);
+      avg_loss = (float)(all.sd->sum_loss/k + sqrt((1.+0.5*log(k))/(weighted_queries+0.0001)));
+      bias = get_active_coin_bias(k, avg_loss, ec->revert_weight/k, all.active_c0);
   }
+  
 #ifdef _WIN32
-  if(rand()/(double)RAND_MAX <bias)
+  if(rand()/(double)RAND_MAX < bias)
 #else
-  if(drand48()<bias)
+  if(drand48() < bias)
 #endif
-    return 1.f/bias;
+    return 1.0f/bias;
   else
-    return -1.;
+    return -1.0;
 }
 
 void print_update(vw& all, example *ec)
@@ -167,6 +200,7 @@ void print_update(vw& all, example *ec)
 void output_and_account_example(vw& all, example* ec)
 {
   label_data* ld = (label_data*)ec->ld;
+  
   all.sd->weighted_examples += ld->weight;
   all.sd->weighted_labels += ld->label == FLT_MAX ? 0 : ld->label * ld->weight;
   all.sd->total_features += ec->num_features;
@@ -175,12 +209,16 @@ void output_and_account_example(vw& all, example* ec)
   
   all.print(all.raw_prediction, ec->partial_prediction, -1, ec->tag);
 
-  float ai=-1; 
-  if(all.active && ld->label == FLT_MAX)
-    ai=query_decision(all, ec, (float)all.sd->weighted_unlabeled_examples);
+  float ai = -1; 
+  
+  // query decision if it is an unlabeled sample
+  if(all.active && ld->label == FLT_MAX) {
+      ai=query_decision(all, ec, (float)all.sd->weighted_unlabeled_examples);
+  }
+  
   all.sd->weighted_unlabeled_examples += ld->label == FLT_MAX ? ld->weight : 0;
   
-  for (size_t i = 0; i<all.final_prediction_sink.index(); i++)
+  for (size_t i = 0; i < all.final_prediction_sink.index(); i++)
     {
       int f = (int)all.final_prediction_sink[i];
       if(all.active)

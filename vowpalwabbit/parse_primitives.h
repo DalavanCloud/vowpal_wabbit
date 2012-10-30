@@ -21,16 +21,16 @@ struct substring {
 struct shared_data {
   size_t queries;
 
-  uint64_t example_number;
-  uint64_t total_features;
+  uint64_t example_number; // current example number
+  uint64_t total_features; // total number features processed
 
   double t;
-  double weighted_examples;
-  double weighted_unlabeled_examples;
+  double weighted_examples; // sum of all seen examples
+  double weighted_unlabeled_examples; // sum of all weighted labels (label * weight)
   double old_weighted_examples;
   double weighted_labels;
-  double sum_loss;
-  double sum_loss_since_last_dump;
+  double sum_loss; // sum of loss for all seen examples
+  double sum_loss_since_last_dump; // loss since last dump (print_update?)
   float dump_interval;// when should I update for the user.
   double gravity;
   double contraction;
