@@ -576,6 +576,8 @@ void general_train(vw& all, example* &ec, float update, float power_t)
   bool is_adaptive = all.adaptive;
   bool is_normalized = all.normalized_updates;
   float total_weight = 0.f;
+  
+  
   if(all.active)
     total_weight = (float)all.sd->weighted_unlabeled_examples;
   else
@@ -587,6 +589,7 @@ void general_train(vw& all, example* &ec, float update, float power_t)
   if(is_adaptive) power_t_norm -= power_t;
 
   float g = all.loss->getSquareGrad(ec->final_prediction, ld->label) * ld->weight;
+  
   for (size_t* i = ec->indices.begin; i != ec->indices.end; i++) 
   {
     feature* f = ec->atomics[*i].begin;
@@ -594,14 +597,19 @@ void general_train(vw& all, example* &ec, float update, float power_t)
     {
       weight* w = &weights[f->weight_index & mask];
       float t = 1.f;
-      if(is_adaptive) t = powf(w[1],-power_t);
+      
+      if(is_adaptive) 
+	  t = powf(w[1], -power_t);
+      
       if(is_normalized) {
-        float norm = w[idx_norm]*avg_norm;
-        t *= powf(norm*norm,-power_t_norm);
+        float norm = w[idx_norm] * avg_norm;
+        t *= powf(norm*norm, -power_t_norm);
       }
-      w[0] += update * f->x * t;
+      w[0] += update * f->x * t; // !!! w update
     }
   }
+  
+  // crossed features update
   for (vector<string>::iterator i = all.pairs.begin(); i != all.pairs.end();i++) 
   {
     if (ec->atomics[(int)(*i)[0]].index() > 0)
@@ -830,6 +838,16 @@ void train(weight* weights, const v_array<feature> &features, float update)
       weights[j->weight_index] += update * j->x;
 }
 
+/**
+ * Compute
+ * 0. norm
+ * 1. loss = loss(prediction, label) * weight
+ * 1a. eta_t = eta * norm * weight
+ * 2. update = update(prediction, label, eta_t, norm)
+ * 3. ec->eta_round = update / contraction
+ * 4. compute gravity and contraction based on regularization
+ * 
+ */
 void local_predict(vw& all, example* ec)
 {
   label_data* ld = (label_data*)ec->ld;
@@ -838,7 +856,7 @@ void local_predict(vw& all, example* ec)
 
   ec->final_prediction = finalize_prediction(all, ec->partial_prediction * (float)all.sd->contraction);
 
-  if(all.active_simulation){
+  if(all.active_simulation) {
     float k = ec->example_t - ld->weight;
     ec->revert_weight = all.loss->getRevertingWeight(all.sd, ec->final_prediction, all.eta/powf(k,all.power_t));
     float importance = query_decision(all, ec, k);
@@ -864,9 +882,11 @@ void local_predict(vw& all, example* ec)
 	{
 	  float eta_t;
 	  float norm;
+	  
+	  // compute norm of x
           if(all.adaptive || all.normalized_updates) {
             if(all.power_t == 0.5)
-              norm = compute_norm(all,ec);
+              norm = compute_norm(all, ec);
             else
               norm = compute_general_norm(all,ec,all.power_t);
           }
@@ -875,9 +895,14 @@ void local_predict(vw& all, example* ec)
           }
 
           eta_t = all.eta * norm * ld->weight;
-          if(!all.adaptive) eta_t *= powf(t,-all.power_t);
+          
+	  if(!all.adaptive) 
+	      eta_t *= powf(t,-all.power_t);
 
-          float update = 0.f;
+          
+	  float update = 0.f;
+	  
+	  // compute update 
           if( all.invariant_updates )
             update = all.loss->getUpdate(ec->final_prediction, ld->label, eta_t, norm);
           else
@@ -885,6 +910,7 @@ void local_predict(vw& all, example* ec)
 
 	  ec->eta_round = (float) (update / all.sd->contraction);
 
+	  // compute gravity and contraction based on regularization settings
 	  if (all.reg_mode && fabs(ec->eta_round) > 1e-8) {
 	    double dev1 = all.loss->first_derivative(all.sd, ec->final_prediction, ld->label);
 	    double eta_bar = (fabs(dev1) > 1e-8) ? (-ec->eta_round / dev1) : 0.0;
