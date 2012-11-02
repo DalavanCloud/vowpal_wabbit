@@ -131,8 +131,8 @@ struct vw {
   size_t num_children;
 
   bool save_per_pass;
-  float active_c0;
-  float initial_weight;
+  float active_c0; // active learning mellowness parameter c_0
+  float initial_weight; // initial weight of each feature 
 
   bool bfgs;
   bool hessian_on;
@@ -147,7 +147,7 @@ struct vw {
 
   size_t base_learner_nb_w; //this stores the current number of "weight vector" required by the based learner, which is used to compute offsets when composing reductions
 
-  size_t stride;
+  size_t stride; // default=4 for default invariant normalized adaptive updates
 
   std::string per_feature_regularizer_input;
   std::string per_feature_regularizer_output;
@@ -163,31 +163,35 @@ struct vw {
   float rel_threshold; // termination threshold
 
   size_t pass_length;
-  size_t numpasses;
+  size_t numpasses; // number of passes
   size_t passes_complete;
   size_t parse_mask; // 1 << num_bits -1
   size_t weight_mask; // (stride*(1 << num_bits) -1)
   std::vector<std::string> pairs; // pairs of features to cross.
-  bool ignore_some;
-  bool ignore[256];//a set of namespaces to ignore
-  size_t ngram;//ngrams to generate.
-  size_t skips;//skips in ngrams.
-  bool audit;//should I print lots of debugging information?
-  bool quiet;//Should I suppress updates?
-  bool training;//Should I train if label data is available?
-  bool active;
-  bool active_simulation;
+
+  bool ignore_some; // should we ignore some of the initial features namespaces
+  bool ignore[256];// a set of namespaces to ignore
+
+  size_t ngram;// ngrams to generate.
+  size_t skips;// skips in ngrams.
+  bool audit;// audit mode - should I print lots of debugging information?, if true, stores also unhashed feature
+  bool quiet;// quitet mode - Should I suppress updates?
+  bool training;// training mode Should I train if label data is available?
+
+  bool active; // active learning mode
+  bool active_simulation; // active learning simulation mode
+
   bool adaptive;//Should I use adaptive individual learning rates?
   bool normalized_updates; //Should every feature be normalized
   bool invariant_updates; //Should we use importance aware/safe updates
-  bool random_weights;
+  bool random_weights; // random weights initialization?
   bool add_constant;
   bool nonormalize;
 
-  float normalized_sum_norm_x;
+  float normalized_sum_norm_x; // if initial_t > 0, then we interpret this as if we had seen (all.initial_t) previous fake datapoints all with norm 1
   size_t normalized_idx; //offset idx where the norm is stored (1 or 2 depending on whether adaptive is true)
 
-  size_t lda;
+  size_t lda; // lda > 0: LDA mode with <lda> topics
   float lda_alpha;
   float lda_rho;
   float lda_D;
@@ -198,7 +202,7 @@ struct vw {
 
   size_t length () { return ((size_t)1) << num_bits; };
 
-  size_t rank;
+  size_t rank; // rank for matrix factorization
 
   //Prediction output
   v_array<size_t> final_prediction_sink; // fd set where to send global predictions to.
@@ -210,14 +214,14 @@ struct vw {
 
   void (*print)(int,float,float,v_array<char>);
   void (*print_text)(int, string, v_array<char>);
-  loss_function* loss;
+  loss_function* loss; // loss function
 
   char* program_name;
 
   //runtime accounting variables. 
-  float initial_t;
-  float eta;//learning rate control.
-  float eta_decay_rate;
+  float initial_t; 
+  float eta; //learning rate control.
+  float eta_decay_rate; // eta decay rate per pass?
 
   std::string final_regressor_name;
   regressor reg;

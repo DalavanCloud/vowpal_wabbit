@@ -21,6 +21,8 @@ license as described in the file LICENSE.
 
 using namespace std;
 
+// MF - matrix factorization
+
 void mf_local_predict(example* ec, regressor& reg);
 
 float mf_inline_predict(vw& all, example* &ec)

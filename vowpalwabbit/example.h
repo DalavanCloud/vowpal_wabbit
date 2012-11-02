@@ -42,7 +42,7 @@ struct example // core example datatype.
   size_t pass;
   float partial_prediction;//shared data for prediction.
   v_array<float> topic_predictions;
-  float loss;
+  float loss; // actual loss * weight
   float eta_round;
   float eta_global;
   float global_weight;

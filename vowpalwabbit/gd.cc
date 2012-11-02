@@ -45,7 +45,7 @@ void learn_gd(void* a, example* ec)
 	assert(ec->in_use);
 
 	// for multinode env?
-	if (ec->pass != gd_current_pass){
+	if(ec->pass != gd_current_pass){
 		
 		// map/reduce?
 		if(all->span_server != ""){
@@ -88,6 +88,7 @@ void finish_gd(void* a)
 {
 	vw* all = (vw*)a;
 	sync_weights(*all);
+
 	if(all->span_server != "") {
 		if(all->adaptive)
 			accumulate_weighted_avg(*all, all->span_server, all->reg);
@@ -168,7 +169,7 @@ float inline_predict_trunc(vw& all, example* &ec)
 
 	// for each namespace
 	for (size_t* i = ec->indices.begin; i != ec->indices.end; i++) {
-		prediction += sd_add_trunc(weights,mask,ec->atomics[*i].begin, ec->atomics[*i].end, (float)all.sd->gravity);
+		prediction += sd_add_trunc(weights, mask,ec->atomics[*i].begin, ec->atomics[*i].end, (float)all.sd->gravity);
 	}
 
 	// compute crossed features weight
@@ -213,6 +214,9 @@ float inline_predict(vw& all, example* &ec)
   return prediction;
 }
 
+/**
+Special case of inline_predict_rescale_general() when all.power_t = 0.5
+*/
 float inline_predict_rescale(vw& all, example* &ec)
 {
   float prediction = all.p->lp->get_initial(ec->ld);
@@ -236,6 +240,9 @@ float inline_predict_rescale(vw& all, example* &ec)
   return prediction;
 }
 
+/**
+Special case of inline_predict_trunc_rescale_general() when all.power_t = 0.5
+*/
 float inline_predict_trunc_rescale(vw& all, example* &ec)
 {
   float prediction = all.p->lp->get_initial(ec->ld);
@@ -479,6 +486,9 @@ void offset_quad_update(weight* weights, feature& page_feature, v_array<feature>
     weights[(halfhash + ele->weight_index) & mask] += update * ele->x;
 }
 
+/**
+Optimized train with inlined inverse sqrt computation
+*/
 void inline_train(vw& all, example* &ec, float update)
 {
 	// skip if the update rate is 0
@@ -840,6 +850,7 @@ void train(weight* weights, const v_array<feature> &features, float update)
 
 /**
  * Compute
+ * 1. clip prediction to interval [min_label, max_label] seen so far
  * 0. norm
  * 1. loss = loss(prediction, label) * weight
  * 1a. eta_t = eta * norm * weight
@@ -860,6 +871,7 @@ void local_predict(vw& all, example* ec)
     float k = ec->example_t - ld->weight;
     ec->revert_weight = all.loss->getRevertingWeight(all.sd, ec->final_prediction, all.eta/powf(k,all.power_t));
     float importance = query_decision(all, ec, k);
+
     if(importance > 0){
       all.sd->queries += 1;
       ld->weight *= importance;
@@ -869,64 +881,77 @@ void local_predict(vw& all, example* ec)
   }
 
   float t;
-  if(all.active)
+
+  if(all.active) {
     t = (float)all.sd->weighted_unlabeled_examples;
-  else
+  } else {
     t = ec->example_t;
+  }
 
   ec->eta_round = 0;
-  if (ld->label != FLT_MAX)
-    {
-      ec->loss = all.loss->getLoss(all.sd, ec->final_prediction, ld->label) * ld->weight;
-      if (all.training && ec->loss > 0.)
-	{
-	  float eta_t;
-	  float norm;
-	  
-	  // compute norm of x
-          if(all.adaptive || all.normalized_updates) {
-            if(all.power_t == 0.5)
-              norm = compute_norm(all, ec);
-            else
-              norm = compute_general_norm(all,ec,all.power_t);
-          }
-          else {
-            norm = ec->total_sum_feat_sq;  
-          }
 
-          eta_t = all.eta * norm * ld->weight;
-          
-	  if(!all.adaptive) 
-	      eta_t *= powf(t,-all.power_t);
+  // learn labeled example
+  if (ld->label != FLT_MAX) {
 
-          
-	  float update = 0.f;
-	  
-	  // compute update 
-          if( all.invariant_updates )
-            update = all.loss->getUpdate(ec->final_prediction, ld->label, eta_t, norm);
-          else
-            update = all.loss->getUnsafeUpdate(ec->final_prediction, ld->label, eta_t, norm);
+	  ec->loss = all.loss->getLoss(all.sd, ec->final_prediction, ld->label) * ld->weight;
 
-	  ec->eta_round = (float) (update / all.sd->contraction);
+	  if (all.training && ec->loss > 0.0) {
+		  float eta_t;
+		  float norm;
 
-	  // compute gravity and contraction based on regularization settings
-	  if (all.reg_mode && fabs(ec->eta_round) > 1e-8) {
-	    double dev1 = all.loss->first_derivative(all.sd, ec->final_prediction, ld->label);
-	    double eta_bar = (fabs(dev1) > 1e-8) ? (-ec->eta_round / dev1) : 0.0;
-	    if (fabs(dev1) > 1e-8)
-	      all.sd->contraction /= (1. + all.l2_lambda * eta_bar * norm);
-	    all.sd->gravity += eta_bar * sqrt(norm) * all.l1_lambda;
+		  // compute norm of x
+		  if(all.adaptive || all.normalized_updates) {
+			  if(all.power_t == 0.5)
+				  norm = compute_norm(all, ec);
+			  else
+				  norm = compute_general_norm(all, ec, all.power_t);
+		  }
+		  else {
+			  norm = ec->total_sum_feat_sq;  
+		  }
+
+		  eta_t = all.eta * norm * ld->weight;
+
+		  if(!all.adaptive) 
+			  eta_t *= powf(t, -all.power_t);
+
+
+		  float update = 0.f;
+
+		  // compute update 
+		  if(all.invariant_updates)
+			  update = all.loss->getUpdate(ec->final_prediction, ld->label, eta_t, norm);
+		  else
+			  update = all.loss->getUnsafeUpdate(ec->final_prediction, ld->label, eta_t, norm);
+
+		  ec->eta_round = (float) (update / all.sd->contraction);
+
+		  // compute gravity and contraction based on regularization settings
+		  if (all.reg_mode && fabs(ec->eta_round) > 1e-8) {
+			  double dev1 = all.loss->first_derivative(all.sd, ec->final_prediction, ld->label);
+			  double eta_bar = (fabs(dev1) > 1e-8) ? (-ec->eta_round / dev1) : 0.0;
+			  
+			  if(fabs(dev1) > 1e-8)
+				  all.sd->contraction /= (1.0 + all.l2_lambda * eta_bar * norm);
+
+			  all.sd->gravity += eta_bar * sqrt(norm) * all.l1_lambda;
+		  }
 	  }
-	}
-    }
+  }
   else if(all.active)
-    ec->revert_weight = all.loss->getRevertingWeight(all.sd, ec->final_prediction, all.eta/powf(t,all.power_t));
+	  ec->revert_weight = all.loss->getRevertingWeight(all.sd, ec->final_prediction, all.eta/powf(t,all.power_t));
 
   if (all.audit)
-    print_audit_features(all, ec);
+	  print_audit_features(all, ec);
 }
 
+/**
+Predict example based on current model.
+
+1. Predict and optionally rescale the weight vector
+2. Truncate gradient (loss) if L1 regularization
+3. Compute loss & other parameters in local_predict()
+*/
 void predict(vw& all, example* ex)
 {
 	label_data* ld = (label_data*)ex->ld; // get label 
@@ -937,20 +962,19 @@ void predict(vw& all, example* ex)
 
 		if( all.power_t == 0.5 ) {
 			if (all.reg_mode % 2)
-				prediction = inline_predict_trunc_rescale(all, ex);
+				prediction = inline_predict_trunc_rescale(all, ex); // l1 regularization
 			else
 				prediction = inline_predict_rescale(all, ex);
-		}
-		else {
+		} else {
 			if (all.reg_mode % 2)
-				prediction = inline_predict_trunc_rescale_general(all, ex);
+				prediction = inline_predict_trunc_rescale_general(all, ex); // l1 regularization
 			else
 				prediction = inline_predict_rescale_general(all, ex);
 		}
 	}
 	else {
 		if (all.reg_mode % 2)
-			prediction = inline_predict_trunc(all, ex);
+			prediction = inline_predict_trunc(all, ex); // l1 regularization
 		else
 			prediction = inline_predict(all, ex);
 	}

@@ -24,16 +24,20 @@ struct shared_data {
   uint64_t example_number; // current example number
   uint64_t total_features; // total number features processed
 
-  double t;
+  double t; // t value
+  
   double weighted_examples; // sum of all seen examples
-  double weighted_unlabeled_examples; // sum of all weighted labels (label * weight)
+  double weighted_unlabeled_examples; // sum of all weights of unlabeled samples (initially = t)
   double old_weighted_examples;
-  double weighted_labels;
+  double weighted_labels; // sum of all seen samples (label * weight)
+
   double sum_loss; // sum of loss for all seen examples
   double sum_loss_since_last_dump; // loss since last dump (print_update?)
   float dump_interval;// when should I update for the user.
-  double gravity;
-  double contraction;
+  
+  double gravity; // parameter for l1 regularization
+  double contraction; // parameter for l2 regularization
+
   float min_label;//minimum label encountered
   float max_label;//maximum label encountered
 
@@ -65,7 +69,7 @@ struct parser {
   bool resettable; //Whether or not the input can be reset.
   io_buf* output; //Where to output the cache.
   bool write_cache; 
-  bool sort_features;
+  bool sort_features; // sort features?
   bool sorted_cache;
 
   size_t ring_size;

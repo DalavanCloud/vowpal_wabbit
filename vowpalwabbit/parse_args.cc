@@ -163,7 +163,7 @@ vw parse_args(int argc, char *argv[])
 
   if(all.initial_t > 0)
   {
-    all.normalized_sum_norm_x = all.initial_t;//for the normalized update: if initial_t is bigger than 1 we interpret this as if we had seen (all.initial_t) previous fake datapoints all with norm 1
+    all.normalized_sum_norm_x = all.initial_t; //for the normalized update: if initial_t is bigger than 1 we interpret this as if we had seen (all.initial_t) previous fake datapoints all with norm 1
   }
 
   if (vm.count("help") || argc == 1) {
@@ -190,6 +190,7 @@ vw parse_args(int argc, char *argv[])
     all.active = true;
 
   all.stride = 4; //use stride of 4 for default invariant normalized adaptive updates
+
   //if we are doing matrix factorization, or user specified anything in sgd,adaptive,invariant,normalized, we turn off default update rules and use whatever user specified
   if( all.rank > 0 || ( ( vm.count("sgd") || vm.count("adaptive") || vm.count("invariant") || vm.count("normalized") ) && !vm.count("exact_adaptive_norm")) )
   {
@@ -199,10 +200,13 @@ vw parse_args(int argc, char *argv[])
 
     all.stride = 1;
 
-    if( all.adaptive ) all.stride *= 2;
-    else all.normalized_idx = 1; //store per feature norm at 1 index offset from weight value instead of 2
+    if( all.adaptive ) 
+		all.stride *= 2;
+    else 
+		all.normalized_idx = 1; //store per feature norm at 1 index offset from weight value instead of 2
 
-    if( all.normalized_updates ) all.stride *= 2;
+    if(all.normalized_updates) 
+		all.stride *= 2;
 
     if(!vm.count("learning_rate") && !vm.count("l") && !(all.adaptive && all.normalized_updates))
       all.eta = 10; //default learning rate to 10 for non default update rule
@@ -250,6 +254,7 @@ vw parse_args(int argc, char *argv[])
   }
 
 
+  // output version
   if (vm.count("version") || argc == 1) {
     /* upon direct query for version -- spit it out to stdout */
     cout << version.to_string() << "\n";
@@ -282,6 +287,8 @@ vw parse_args(int argc, char *argv[])
       cout << "*********************************" << endl;
       }
     }
+
+
   if (vm.count("bit_precision"))
     {
       all.default_bits = false;

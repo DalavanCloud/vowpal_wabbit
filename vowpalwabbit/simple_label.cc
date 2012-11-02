@@ -156,7 +156,7 @@ float query_decision(vw& all, example* ec, float k)
   if(k <= 1.0) {
       bias = 1.0;
   } else {
-      weighted_queries = (float)(all.initial_t + all.sd->weighted_examples - all.sd->weighted_unlabeled_examples);
+      weighted_queries = (float)(all.initial_t + all.sd->weighted_examples - all.sd->weighted_unlabeled_examples); // number of weighted labeled samples
       avg_loss = (float)(all.sd->sum_loss/k + sqrt((1.+0.5*log(k))/(weighted_queries+0.0001)));
       bias = get_active_coin_bias(k, avg_loss, ec->revert_weight/k, all.active_c0);
   }
@@ -213,21 +213,24 @@ void output_and_account_example(vw& all, example* ec)
   
   // query decision if it is an unlabeled sample
   if(all.active && ld->label == FLT_MAX) {
-      ai=query_decision(all, ec, (float)all.sd->weighted_unlabeled_examples);
+      ai = query_decision(all, ec, (float)all.sd->weighted_unlabeled_examples);
   }
   
   all.sd->weighted_unlabeled_examples += ld->label == FLT_MAX ? ld->weight : 0;
-  
+
+  // output predictions to sinks
   for (size_t i = 0; i < all.final_prediction_sink.index(); i++)
-    {
-      int f = (int)all.final_prediction_sink[i];
-      if(all.active)
-	active_print_result(f, ec->final_prediction, ai, ec->tag);
-      else if (all.lda > 0)
-	print_lda_result(all, f,ec->topic_predictions.begin,0.,ec->tag);
-      else
-	all.print(f, ec->final_prediction, 0, ec->tag);
-    }
+  {
+	  int f = (int)all.final_prediction_sink[i];
+
+	  if(all.active) {
+		  active_print_result(f, ec->final_prediction, ai, ec->tag);
+	  } else if (all.lda > 0) {
+		  print_lda_result(all, f,ec->topic_predictions.begin,0.,ec->tag);
+	  } else {
+		  all.print(f, ec->final_prediction, 0, ec->tag);
+	  }
+  }
 
   all.sd->example_number++;
 
