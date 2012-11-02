@@ -166,7 +166,7 @@ struct vw {
   size_t numpasses; // number of passes
   size_t passes_complete;
   size_t parse_mask; // 1 << num_bits -1
-  size_t weight_mask; // (stride*(1 << num_bits) -1)
+  size_t weight_mask; // stride * (1 << num_bits) - 1
   std::vector<std::string> pairs; // pairs of features to cross.
 
   bool ignore_some; // should we ignore some of the initial features namespaces
